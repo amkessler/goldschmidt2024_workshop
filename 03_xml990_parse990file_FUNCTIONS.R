@@ -13,7 +13,7 @@ options(stringsAsFactors = FALSE)
 # TARGET NONPROFIT LIST / SELECTIONS ##################################
 
 #load in table
-gsheet <- read_csv("data/xmls_list.csv")
+gsheet <- read_csv("xmls_list.csv")
 
 gsheet
 
