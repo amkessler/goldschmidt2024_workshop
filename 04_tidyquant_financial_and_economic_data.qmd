@@ -1,0 +1,442 @@
+---
+title: "Financial/Economic Data using TidyQuant"
+author: "Aaron Kessler"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format:
+  html:
+    self-contained: true
+    toc: true
+    toc-location: left
+    theme: yeti
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidyquant)
+options(dplyr.summarise.inform = FALSE)
+options(scipen = 999)
+
+
+```
+
+To gather and analyze financial data, we'll explore using the `tidyquant` package - which allows us to directly download data on measures like stock prices as well as economic indicators from the Fed.
+
+# Stock Data
+
+## Analyzing a company
+
+Let's see how we grab stock price data directly from the web and work with it. First we'll assign the stock ticker/symbol for the company we're interested in exploring.
+
+```{r}
+
+ticker <- "MSFT"  
+
+```
+
+Use the `tq_get()` function to download the stock data.
+
+This function returns a data frame containing the date, open, high, low, and close prices for each day. For example:
+
+```{r}
+
+stock_data <- tq_get(ticker, get = "stock.prices", from = "2024-01-01")
+
+stock_data
+
+```
+
+As you can see above, we can specify how far back we want the data to go. (You can also optionally set and end by using `to =` ... if you don't, it just defaults to the most recent day.)
+
+Now here's where it gets even more interesting and powerful... Let's say instead of daily prices, you wish you could look at it on a monthly basis. Or annually. Or weekly. Well you could write some custom code yourself aimed at pulling out just the records for the last day of the month -- but you don't have to come up with that: tidyquant has done it for you using its `tq_transmute()` function. (The function uses the powers of other financial packages such as xts, quantmod and TTR under the hood.)
+
+Modify our data to be monthly instead, based on the last closing price of the month.
+
+```{r}
+
+stocks_monthly <- stock_data %>%
+    group_by(symbol) %>%
+    tq_transmute(select = close, 
+                 mutate_fun = to.monthly, 
+                 indexAt = "lastof")
+
+stocks_monthly
+
+```
+
+Want to try annually instead? It's just a matter of one small tweak. Check it out...
+
+```{r}
+
+stock_data %>%
+    group_by(symbol) %>%
+    tq_transmute(select = close, 
+                 mutate_fun = to.yearly, #here's the change
+                 indexAt = "lastof")
+
+
+```
+
+Now of course, just a couple years of annual data isn't very illuminating. But if we want to go back to start earlier in time, it's as simple as just asking R for it.
+
+```{r}
+
+stock_data_from2000 <- tq_get(ticker, get = "stock.prices", from = "2000-01-01")
+
+stock_data_from2000
+
+```
+
+```{r}
+
+stock_data_from2000 %>%
+    group_by(symbol) %>%
+    tq_transmute(select = close, 
+                 mutate_fun = to.yearly, #here's the change
+                 indexAt = "lastof")
+
+
+
+```
+
+Keep in mind, depending on the use case, and as you get more comfortable with this, you can combine some of these steps together...
+
+```{r}
+
+tq_get(ticker, get = "stock.prices", from = "2000-01-01") %>%
+    group_by(symbol) %>%
+    tq_transmute(select = close, 
+                 mutate_fun = to.yearly, #here's the change
+                 indexAt = "lastof")
+
+
+```
+
+There are all kinds of other questions we can ponder, and then pull together using relatively straightforward functions (all things considered).
+
+Let's say now that we have data going back to 2000, we'd like to also calculate what the annual return was for our company's stock. We can do that like this:
+
+```{r}
+
+stock_data_from2000 %>%
+  tq_transmute(select = close,
+               mutate_fun = periodReturn,
+               period = "yearly",
+               col_rename = "annual_return")
+
+
+
+```
+
+Want to see monthly returns instead? It's as simple as doing:
+
+```{r}
+
+stock_data_from2000 %>%
+  tq_transmute(select = close,
+               mutate_fun = periodReturn,
+               period = "monthly", #here's the change
+               col_rename = "monthly_return")
+
+
+```
+
+Now keep in mind what we did above used the closing price of the stock. But we might want to take into account dividends, stock splits, etc., which can affect as the stock's value. If we want to adjust for these things to achieve a potentially more accurate picture of the stock's returns over time, we can use the adjusted field in the data instead.
+
+```{r}
+
+stock_data_from2000 %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = "yearly",
+               col_rename = "annual_return")
+
+
+
+```
+
+## Visualizing
+
+Want to visualize the returns? We can do that too, using the ggplot2 package augmented by tidyquant.
+
+First let's make sure we've saved our annual return dataset as a new named object.
+
+```{r}
+annualreturns_data <- stock_data_from2000 %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = "yearly", #here's the change
+               col_rename = "annual_return")
+
+annualreturns_data
+
+```
+
+Now we'll create the chart.
+
+```{r}
+
+annualreturns_data %>%
+    ggplot(aes(x = year(date), y = annual_return)) +
+    geom_col() +
+    labs(title = "Annual Returns", 
+         subtitle = "2000 through the present",
+         y = "Returns", x = "", color = "") +
+    scale_y_continuous(labels = scales::percent) +
+    coord_flip() +
+    theme_tq() 
+
+```
+
+What other kinds of visualizations can we do? How about we create a line chart of the stock's closing price over time. We can do this by using the `geom_line()` function of ggplot2. To simplify we'll use our original stock data from 2020. For example:
+
+```{r}
+
+ggplot(stock_data, aes(x = date, y = adjusted)) +
+  geom_line()
+```
+
+If we wanted to add some labels...
+
+```{r}
+stock_data %>%
+  ggplot(aes(x = date, y = adjusted)) +
+  geom_line() +
+  labs(title = "Stock Price", y = "Closing Price", x = "")
+```
+
+Now once again, we have some very helpful financial measures built in to tidyquant. Let's say we'd like to smooth things out here a bit, and calculate a moving average? The `geom_ma()` function delivers it for us.
+
+```{r}
+# simple moving averages
+
+stock_data %>%
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  labs(title = "Stock Price", y = "Closing Price", x = "") +
+  geom_ma(ma_fun = SMA, n = 50, color = "red", linewidth = 1.25) +
+  theme_minimal()
+```
+
+Want a 30-day moving average instead? Well you just have make one tiny tweak.
+
+```{r}
+
+stock_data %>%
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  labs(title = "Stock Price", y = "Closing Price", x = "") +
+  geom_ma(ma_fun = SMA, n = 30, color = "red", linewidth = 1.25) + #can you spot the change in this line?
+  theme_minimal()
+
+```
+
+Maybe you'd acutally like to have both at the same time? No problem. We'll distinguish the colors and line design type here to make it easier to see.
+
+```{r}
+
+stock_data %>%
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  labs(title = "Stock Price", y = "Closing Price", x = "") +
+  geom_ma(ma_fun = SMA, n = 30, color = "blue", linewidth = 1.25, linetype = "dotted") + 
+  geom_ma(ma_fun = SMA, n = 50, color = "red", linewidth = 1.25) + 
+  theme_minimal()
+
+```
+
+And remember once again, like we did earlier above, we could choose to look at weekly, monthly, or annual prices instead of daily.
+
+Also, note that above we're using a Simple Moving Average (SMA) for all of our analysis. But tidyquant also supports a range of other calculations, including:
+
+Exponential moving averages (EMA) Weighted moving averages (WMA) Double exponential moving averages (DEMA) Zero-lag exponential moving averages (ZLEMA) Volume-weighted moving averages (VWMA) Elastic volume-weighted moving averages (EVWMA)
+
+## Multiple companies at once
+
+You may be asking, could I grab data on more than one company, so I can compare them? Indeed.
+
+```{r}
+mycompanies  <- tq_get(c("AAPL", "MSFT", "NYT", "XOM"), 
+                       get = "stock.prices", 
+                       from = "2023-01-01")
+mycompanies
+```
+
+```{r}
+mycompanies %>% 
+  count(symbol)
+```
+
+Now we'll chart those out to compare, using almost identical code as above, but with some changes to allow small-multiple charts using `facet_wrap()`.
+
+```{r}
+mycompanies %>%
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  labs(title = "", y = "Closing Price", x = "") +
+  facet_wrap(~ symbol, ncol = 2, scale = "free_y")
+```
+
+Want to add that moving average again? Can do that, too.
+
+```{r}
+
+mycompanies %>%
+  ggplot(aes(x = date, y = close)) +
+  geom_line() +
+  labs(title = "", y = "Closing Price", x = "") +
+  geom_ma(ma_fun = SMA, n = 50, color = "red", size = 1.25) +
+  facet_wrap(~ symbol, ncol = 2, scale = "free_y") +
+  theme_minimal()
+```
+
+
+<br>
+
+# FRED Economic Data
+
+A wealth of economic data can be extracted from the Federal Reserve Economic Data (FRED) database. [FRED](https://fredhelp.stlouisfed.org/fred/about/about-fred/what-is-fred/) contains thousands of [data sets](https://fred.stlouisfed.org/) that are free to use. See the FRED categories to narrow down the data base and to get data codes. categories: https://fred.stlouisfed.org/categories
+
+Let's talk about them and FRED's vast richness of data for business reporting.
+
+In addition to the work we're doing here in R, for example, there is an [Excel plug-in](https://fred.stlouisfed.org/fred-addin/) for FRED data you may find useful as well. There's even a FRED [mobile app](https://fred.stlouisfed.org/fred-mobile/index.php).
+
+## Examples
+
+US Regular All Formulations Gas Price (GASREGW), weekly
+
+```{r}
+
+gasprices <- tq_get("GASREGW", get = "economic.data", from = "2023-01-01")
+
+gasprices
+
+```
+
+```{r}
+gasprices %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+```
+
+30 year mortgage rate average, weekly
+
+```{r}
+
+mortgate_30yr_weekly <- tq_get("MORTGAGE30US", get = "economic.data", from = "2023-01-01")
+mortgate_30yr_weekly
+```
+
+```{r}
+mortgate_30yr_weekly %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+```
+
+Consumer Price Index For All Urban Consumers, monthly
+
+```{r}
+
+cpi <- tq_get("CPIAUCSL", get = "economic.data", from = "2018-01-01")
+
+cpi 
+
+cpi %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+
+```
+
+Unemployment rate, civilian, monthly
+
+```{r}
+
+tq_get("UNRATE", get = "economic.data", from = "2018-01-01") %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+
+```
+
+FRED even compiles numerous measures below the national level, which you can apply to the local community or region in which you live for insights and comparisons.
+
+https://fred.stlouisfed.org/categories/3008
+
+For example, Per Capita Personal Income data (annual) is available at the county level in many states. Let's look at [Sarasota County, Florida](https://fred.stlouisfed.org/series/PCPI12115).
+
+```{r}
+
+sarasota_pcpi <- tq_get("PCPI12115", get = "economic.data", from = "2010-01-01")
+
+sarasota_pcpi 
+
+
+
+```
+
+Keep in mind that for many such localized measures, the FRED site makes it easy to see a nationwide map of all counties, or the relevant geographies. Let's take a look. (We'll talk about how to create such maps in R later on.)
+
+Sticking with Sarasota County for a moment, let's examine some other measures.
+
+How about the [5-year home ownership rate estimate](https://fred.stlouisfed.org/series/HOWNRATEACS012115).
+
+```{r}
+
+sarasota_5yhomeownership <- tq_get("HOWNRATEACS012115", get = "economic.data", from = "2010-01-01")
+
+sarasota_5yhomeownership 
+
+
+
+
+```
+
+How about the county's [Subprime Credit Population, by quarter](https://fred.stlouisfed.org/series/EQFXSUBPRIME012115). This data only begins in 2014, but...pretty interesting!
+
+```{r}
+
+sarasota_subprimepop <- tq_get("EQFXSUBPRIME012115", get = "economic.data", from = "2014-01-01")
+
+sarasota_subprimepop 
+
+sarasota_subprimepop %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+
+
+```
+
+How about right where we are sitting in Washington, D.C. -- if you happen to be curious how many businesses were formed on a monthly basis, you could pull [business application data](https://fred.stlouisfed.org/series/BABATOTALSADC).
+
+```{r}
+
+dc_bizapplications <- tq_get("BABATOTALSADC", get = "economic.data", from = "2014-01-01")
+
+dc_bizapplications 
+
+dc_bizapplications %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+
+
+```
+
+While we're at it, how are home prices looking around the DC metro area? Let's examine the [Case-Shiller index](https://fred.stlouisfed.org/series/WDXRSA)...
+
+```{r}
+
+tq_get("WDXRSA", get = "economic.data", from = "2014-01-01") %>% 
+  ggplot(aes(x = date, y = price)) +
+  geom_line(color = "darkred") +
+  theme_minimal()
+
+
+```
+
+As you can see, there are an almost infinite number of ways to use FRED data both to capture the local picture, as well as the national one, and search for information that can help fuel insightful reporting.

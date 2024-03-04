@@ -1,0 +1,32 @@
+---
+title: "Political Nonprofits"
+author: "Aaron M. Kessler"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format:
+  html:
+    self-contained: true
+    toc: true
+    toc-location: left
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE) #set echo to FALSE globally for this document
+
+library(tidyverse)
+library(here)
+library(kableExtra)
+library(gt)
+library(janitor)
+library(readxl)
+library(writexl)
+
+
+
+
+```
+
+# Introduction
+
+
+
+
