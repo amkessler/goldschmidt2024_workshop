@@ -2,9 +2,6 @@
 
 library(tidyverse)
 library(janitor)
-library(httr)
-library(jsonlite)
-library(curl)
 library(writexl)
 library(XML)
 library(xml2)
